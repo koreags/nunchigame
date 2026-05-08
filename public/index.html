@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>눈치게임</title>
+  <script src="/socket.io/socket.io.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #08080f;
+      --surface:  #0f0f1c;
+      --surface2: #15152a;
+      --border:   #1e1e36;
+      --text:     #e2e2f0;
+      --dim:      #6060888;
+      --dim:      #606088;
+      --red:      #e53e3e;
+      --green:    #38a169;
+      --blue:     #4a90d9;
+      --gold:     #d4a017;
+      --r:        12px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo',
+                   'Noto Sans KR', sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100%;
+    }
+
+    /* ─── Screens ──────────────────────────────────────────── */
+    .screen {
+      display: none;
+      flex-direction: column;
+      width: 100%;
+      max-width: 480px;
+      min-height: 100dvh;
+      padding: 24px 16px 40px;
+    }
+    .screen.active {
+      display: flex;
+      animation: fadeUp .25s ease;
+    }
+
+    @keyframes fadeUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ─── Common ───────────────────────────────────────────── */
+    .lbl {
+      font-size: .72rem;
+      font-weight: 700;
+      letter-spacing: 1.8px;
+      text-transform: uppercase;
+      color: var(--dim);
+      margin-bottom: 8px;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 13px 16px;
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r);
+      color: var(--text);
+      font-size: 1rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    input[type="text"]:focus { border-color: var(--blue); }
+    input::placeholder { color: var(--dim); }
+
+    .btn {
+      padding: 13px 20px;
+      border: none;
+      border-radius: var(--r);
+      font-size: .95rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: filter .15s, transform .1s;
+      -webkit-tap-highlight-color: transparent;
+      white-space: nowrap;
+    }
+    .btn:active { transform: scale(.96); }
+    .btn-red   { background: linear-gradient(135deg,#e53e3e,#c53030); color:#fff; }
+    .btn-ghost { background: var(--surface2); color: var(--text); border: 1.5px solid var(--border); }
+    .btn-red:hover   { filter: brightness(1.12); }
+    .btn-ghost:hover { border-color: var(--dim); }
+    .btn-block { width: 100%; }
+
+    .err { color: var(--red); font-size: .82rem; min-height: 18px; margin-top: 6px; }
+
+    .g-s  { height: 10px; }
+    .g-m  { height: 18px; }
+    .g-l  { height: 30px; }
+    .g-xl { height: 48px; }
+
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      color: var(--dim); font-size: .8rem; margin: 22px 0;
+    }
+    .divider::before, .divider::after {
+      content:''; flex:1; height:1px; background:var(--border);
+    }
+
+    /* ─── Lobby ────────────────────────────────────────────── */
+    .logo {
+      text-align: center;
+      margin-bottom: 44px;
+    }
+    .logo-title {
+      font-size: 3rem;
+      font-weight: 900;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, #ff5555, #ff9500);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .logo-sub { font-size: .85rem; color: var(--dim); margin-top: 6px; }
+
+    .row { display: flex; gap: 10px; }
+    .row input { flex: 1; min-width: 0; }
+
+    /* ─── Waiting Room ─────────────────────────────────────── */
+    .code-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--r);
+      padding: 22px 20px;
+      text-align: center;
+      margin-bottom: 22px;
+      cursor: pointer;
+      transition: border-color .2s;
+      user-select: none;
+    }
+    .code-card:hover { border-color: var(--dim); }
+    .code-label { font-size:.7rem; font-weight:700; letter-spacing:2.5px; color:var(--dim); margin-bottom:10px; }
+    .code-value { font-size:2.6rem; font-weight:900; letter-spacing:10px; }
+    .code-hint  { font-size:.72rem; color:var(--dim); margin-top:10px; }
+
+    .player-list { display:flex; flex-direction:column; gap:6px; margin-bottom:22px; }
+    .player-row {
+      display:flex; align-items:center; gap:10px;
+      padding:11px 14px;
+      background:var(--surface);
+      border:1.5px solid var(--border);
+      border-radius:9px;
+    }
+    .player-row.is-me { border-color: rgba(74,144,217,.45); }
+    .dot { width:7px; height:7px; border-radius:50%; background:var(--green); flex-shrink:0; }
+    .p-name { flex:1; font-weight:600; font-size:.95rem; }
+    .chip {
+      font-size:.66rem; font-weight:700; padding:2px 8px;
+      border-radius:5px; letter-spacing:.5px;
+    }
+    .chip-host { background:rgba(212,160,23,.18); color:var(--gold); }
+    .chip-me   { background:rgba(74,144,217,.18); color:var(--blue); }
+
+    /* ─── Game Screen ──────────────────────────────────────── */
+    .game-top {
+      display:flex; justify-content:space-between; align-items:center;
+      margin-bottom:16px;
+    }
+    .round-tag {
+      font-size:.78rem; font-weight:800; letter-spacing:2.5px;
+      text-transform:uppercase; color:var(--dim);
+    }
+    .alive-tag { font-size:.78rem; color:var(--dim); }
+    .alive-tag b { color:var(--green); font-size:.9rem; }
+
+    /* Spectator */
+    .spec-banner {
+      display:none;
+      background:rgba(96,96,136,.1);
+      border:1.5px solid var(--border);
+      border-radius:var(--r);
+      padding:10px 14px;
+      font-size:.84rem; color:var(--dim);
+      text-align:center;
+      margin-bottom:14px;
+    }
+    .spec-banner.on { display:block; }
+
+    /* Timer */
+    .timer-wrap {
+      text-align:center;
+      min-height:100px;
+      display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      margin-bottom:18px;
+    }
+    .timer-num {
+      display:none;
+      font-size:5.8rem; font-weight:900; line-height:1;
+      color:var(--red);
+      transition: color .2s;
+    }
+    .timer-num.on { display:block; animation:tPulse 1s ease-in-out infinite; }
+    .timer-num.urgent { animation:tShake .22s ease-in-out infinite; color:#ff1a1a; }
+    .timer-num.flash-green { color:var(--green) !important; animation:none !important; }
+    .timer-sub {
+      display:none;
+      font-size:.7rem; letter-spacing:2.5px;
+      text-transform:uppercase; color:var(--dim);
+      margin-top:4px;
+    }
+    .timer-sub.on { display:block; }
+    .idle-hint {
+      font-size:.85rem; color:var(--dim);
+      animation:blink 2.5s ease-in-out infinite;
+    }
+
+    @keyframes tPulse  { 0%,100%{transform:scale(1)} 50%{transform:scale(1.06)} }
+    @keyframes tShake  { 0%,100%{transform:translateX(0)} 33%{transform:translateX(-5px)} 66%{transform:translateX(5px)} }
+    @keyframes blink   { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    /* Number Grid */
+    .num-grid { display:grid; gap:10px; margin-bottom:24px; }
+    .num-btn {
+      aspect-ratio:1;
+      background:var(--surface);
+      border:2px solid var(--border);
+      border-radius:14px;
+      color:var(--text);
+      font-size:1.8rem; font-weight:900;
+      cursor:pointer;
+      transition:all .12s;
+      -webkit-tap-highlight-color:transparent;
+      position:relative;
+    }
+    .num-btn:hover:not(:disabled) {
+      border-color:var(--dim);
+      background:var(--surface2);
+      transform:translateY(-2px) scale(1.02);
+    }
+    .num-btn:active:not(:disabled) { transform:scale(.94); }
+    .num-btn.picked {
+      border-color:var(--blue);
+      background:rgba(74,144,217,.15);
+      color:var(--blue);
+      box-shadow:0 0 20px rgba(74,144,217,.28);
+    }
+    .num-btn:disabled { opacity:.25; cursor:not-allowed; transform:none !important; }
+
+    /* Player Chips */
+    .chips-section { margin-bottom:10px; }
+    .chips-wrap { display:flex; flex-wrap:wrap; gap:6px; min-height:24px; }
+    .p-chip {
+      padding:4px 10px; border-radius:20px;
+      font-size:.76rem; font-weight:600;
+      border:1.5px solid var(--border);
+      background:var(--surface);
+      color:var(--dim);
+      transition:all .15s;
+    }
+    .p-chip.alive     { color:var(--green); border-color:rgba(56,161,105,.35); }
+    .p-chip.has-pick  { color:var(--blue);  border-color:rgba(74,144,217,.45); background:rgba(74,144,217,.1); }
+    .p-chip.me        { font-style:italic; }
+    .p-chip.dead      { opacity:.28; text-decoration:line-through; }
+    .p-chip.secured   {
+      color: var(--green);
+      border-color: rgba(56,161,105,.5);
+      background: rgba(56,161,105,.12);
+    }
+
+    /* 확보된 숫자 버튼 */
+    .num-btn.secured-mine {
+      border-color: var(--green);
+      background: rgba(56,161,105,.22);
+      color: var(--green);
+      box-shadow: 0 0 22px rgba(56,161,105,.32);
+      cursor: default;
+    }
+    .num-btn.secured-other {
+      border-color: rgba(56,161,105,.35);
+      background: rgba(56,161,105,.07);
+      color: rgba(56,161,105,.7);
+      cursor: not-allowed;
+    }
+
+    /* 탈락 토스트 */
+    .toast {
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(14, 14, 26, 0.97);
+      border: 1.5px solid var(--red);
+      color: var(--text);
+      padding: 22px 28px;
+      border-radius: var(--r);
+      font-size: .95rem;
+      line-height: 1.6;
+      z-index: 999;
+      text-align: center;
+      max-width: 85vw;
+      box-shadow: 0 12px 40px rgba(0,0,0,.6), 0 0 0 1px rgba(229,62,62,.2);
+      animation: toastIn .28s cubic-bezier(.34,1.56,.64,1);
+      pointer-events: none;
+    }
+    @keyframes toastIn {
+      from { opacity:0; transform:translate(-50%,-58%) scale(.88); }
+      to   { opacity:1; transform:translate(-50%,-50%) scale(1); }
+    }
+
+    /* ─── Result Screen ────────────────────────────────────── */
+    .res-head { text-align:center; margin-bottom:26px; }
+    .res-round-tag { font-size:.7rem; font-weight:700; letter-spacing:2.5px; color:var(--dim); margin-bottom:6px; }
+    .res-title { font-size:1.9rem; font-weight:900; }
+
+    /* Number summary */
+    .num-summary {
+      display:flex; flex-wrap:wrap; gap:8px; justify-content:center;
+      margin-bottom:26px;
+    }
+    .ns-num {
+      width:52px; height:52px; border-radius:10px;
+      display:flex; align-items:center; justify-content:center;
+      font-size:1.35rem; font-weight:900;
+      border:2px solid var(--border);
+      background:var(--surface); color:var(--dim);
+      transition:all .2s;
+    }
+    .ns-num.secured   { border-color:var(--green); color:var(--green); background:rgba(56,161,105,.1); }
+    .ns-num.collision { border-color:var(--red);   color:var(--red);   background:rgba(229,62,62,.1); }
+
+    .res-section { margin-bottom:20px; }
+    .res-item {
+      display:flex; align-items:center; gap:14px;
+      padding:12px 16px;
+      background:var(--surface);
+      border:1.5px solid var(--border);
+      border-radius:10px;
+      margin-bottom:7px;
+    }
+    .res-item.ok  { border-color:rgba(56,161,105,.4); background:rgba(56,161,105,.07); }
+    .res-item.col { border-color:rgba(229,62,62,.4);  background:rgba(229,62,62,.07); }
+    .res-item.no  { opacity:.5; }
+    .res-num {
+      font-size:1.5rem; font-weight:900;
+      width:40px; text-align:center; flex-shrink:0;
+    }
+    .res-num.g { color:var(--green); }
+    .res-num.r { color:var(--red); }
+    .res-num.d { color:var(--dim); }
+    .res-info { flex:1; }
+    .res-name { font-weight:700; font-size:.92rem; }
+    .res-status { font-size:.75rem; color:var(--dim); margin-top:2px; }
+    .res-icon { font-size:1.1rem; }
+    .me-tag { font-size:.72rem; color:var(--blue); margin-left:4px; }
+
+    /* Progress */
+    .prog-wrap { margin-top:28px; }
+    .prog-bar  { height:2px; background:var(--border); border-radius:2px; overflow:hidden; }
+    .prog-fill { height:100%; background:var(--blue); }
+    .prog-lbl  { font-size:.74rem; color:var(--dim); text-align:center; margin-top:8px; }
+
+    /* ─── Game Over ────────────────────────────────────────── */
+    .go-wrap {
+      flex:1; display:flex; flex-direction:column;
+      align-items:center; justify-content:center;
+      text-align:center; gap:18px;
+    }
+    .go-crown { font-size:5rem; line-height:1; margin-bottom:4px; }
+    .go-lbl   { font-size:.72rem; letter-spacing:2.5px; text-transform:uppercase; color:var(--dim); }
+    .go-name  { font-size:2.6rem; font-weight:900; color:var(--gold); }
+  </style>
+</head>
+<body>
+
+<!-- ══════════════════════════════ LOBBY ══════════════════════════════ -->
+<div id="s-lobby" class="screen active">
+  <div class="g-xl"></div>
+  <div class="logo">
+    <div class="logo-title">눈치게임</div>
+    <div class="logo-sub">숫자를 선점하라. 충돌하면 탈락.</div>
+  </div>
+
+  <div class="lbl">닉네임</div>
+  <input id="inp-name" type="text" placeholder="이름을 입력하세요"
+         maxlength="12" autocomplete="off" spellcheck="false" />
+  <div class="g-m"></div>
+  <button class="btn btn-red btn-block" onclick="createRoom()">방 만들기</button>
+
+  <div class="divider">또는</div>
+
+  <div class="lbl">방 코드로 입장</div>
+  <div class="row">
+    <input id="inp-code" type="text" placeholder="XXXX"
+           maxlength="6" autocomplete="off" spellcheck="false"
+           style="text-transform:uppercase;letter-spacing:5px;font-weight:800;font-size:1.05rem" />
+    <button class="btn btn-ghost" onclick="joinRoom()">입장</button>
+  </div>
+  <div class="err" id="lobby-err"></div>
+</div>
+
+<!-- ════════════════════════════ WAITING ROOM ════════════════════════════ -->
+<div id="s-waiting" class="screen">
+  <div class="g-m"></div>
+
+  <div class="code-card" onclick="copyCode()">
+    <div class="code-label">방 코드</div>
+    <div class="code-value" id="w-code">----</div>
+    <div class="code-hint" id="w-copy-hint">탭하여 복사</div>
+  </div>
+
+  <div class="lbl" id="w-player-lbl">참가자 0명</div>
+  <div class="player-list" id="w-player-list"></div>
+
+  <div id="w-host-area" style="display:none">
+    <button class="btn btn-red btn-block" onclick="startGame()">게임 시작</button>
+    <div class="g-s"></div>
+    <p style="text-align:center;font-size:.76rem;color:var(--dim)">최소 2명이 필요합니다</p>
+  </div>
+  <div id="w-wait-msg" style="display:none;text-align:center;color:var(--dim);font-size:.88rem">
+    방장이 게임을 시작하기를 기다리는 중…
+  </div>
+  <div class="err" id="waiting-err" style="text-align:center"></div>
+</div>
+
+<!-- ════════════════════════════════ GAME ════════════════════════════════ -->
+<div id="s-game" class="screen">
+  <div class="game-top">
+    <div class="round-tag" id="g-round">ROUND 1</div>
+    <div class="alive-tag">생존자 <b id="g-alive">-</b>명</div>
+  </div>
+
+  <div class="spec-banner" id="g-spec">👁 관전 중 — 결과를 지켜보세요</div>
+
+  <div class="timer-wrap">
+    <div class="timer-num" id="g-timer">10</div>
+    <div class="timer-sub" id="g-timer-sub">초 후 탈락</div>
+    <div class="idle-hint" id="g-idle">숫자를 선택하세요</div>
+  </div>
+
+  <div class="num-grid" id="g-grid"></div>
+
+  <div class="chips-section">
+    <div class="lbl">생존자</div>
+    <div class="chips-wrap" id="g-chips-alive"></div>
+  </div>
+  <div class="g-s"></div>
+  <div class="chips-section">
+    <div class="lbl">탈락자</div>
+    <div class="chips-wrap" id="g-chips-dead"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ RESULT ══════════════════════════════ -->
+<div id="s-result" class="screen">
+  <div class="g-m"></div>
+  <div class="res-head">
+    <div class="res-round-tag" id="r-round-tag">ROUND 1 결과</div>
+    <div class="res-title">라운드 종료</div>
+  </div>
+
+  <div class="num-summary" id="r-summary"></div>
+
+  <div class="res-section">
+    <div class="lbl">확보 성공</div>
+    <div id="r-secured"></div>
+  </div>
+  <div class="res-section">
+    <div class="lbl">탈락</div>
+    <div id="r-elim"></div>
+  </div>
+
+  <div class="prog-wrap">
+    <div class="prog-bar"><div class="prog-fill" id="r-prog" style="width:100%"></div></div>
+    <div class="prog-lbl">잠시 후 다음 라운드가 시작됩니다</div>
+  </div>
+</div>
+
+<!-- ═════════════════════════════ GAME OVER ═════════════════════════════ -->
+<div id="s-gameover" class="screen">
+  <div class="go-wrap">
+    <div>
+      <div class="go-crown" id="go-crown">🏆</div>
+      <div class="go-lbl" id="go-lbl">최후의 생존자</div>
+      <div class="go-name" id="go-name">-</div>
+    </div>
+    <button class="btn btn-ghost" onclick="backToLobby()" style="margin-top:8px">다시 하기</button>
+  </div>
+</div>
+
+<!-- ═════════════════════════════ SCRIPT ═════════════════════════════ -->
+<script>
+const socket = io();
+
+// ─── State ────────────────────────────────────────────────────────────
+let myId         = null;
+let myName       = '';
+let roomId       = null;
+let isAlive      = true;
+let myPick       = null;    // 현재 라운드에서 내가 선택한 숫자
+let currentRound = 0;
+let lastState    = null;
+let curScreen    = 'lobby';
+
+// ─── Screen ───────────────────────────────────────────────────────────
+function show(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('s-' + name).classList.add('active');
+  curScreen = name;
+}
+
+// ─── Utilities ────────────────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const esc = s => String(s)
+  .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function setErr(id, msg) { $(id).textContent = msg || ''; }
+
+// ─── Lobby ────────────────────────────────────────────────────────────
+function genCode() {
+  return Math.random().toString(36).slice(2,6).toUpperCase();
+}
+
+function getName() {
+  const v = $('inp-name').value.trim();
+  if (!v) { setErr('lobby-err','닉네임을 입력해주세요'); return null; }
+  setErr('lobby-err','');
+  return v;
+}
+
+function createRoom() {
+  const name = getName(); if (!name) return;
+  myName = name;
+  roomId = genCode();
+  socket.emit('join_room', { roomId, name });
+}
+
+function joinRoom() {
+  const name = getName(); if (!name) return;
+  const code = $('inp-code').value.trim().toUpperCase();
+  if (!code) { setErr('lobby-err','방 코드를 입력해주세요'); return; }
+  myName = name;
+  roomId = code;
+  socket.emit('join_room', { roomId: code, name });
+}
+
+$('inp-name').addEventListener('keydown', e => {
+  if (e.key === 'Enter') $('inp-code').value ? joinRoom() : createRoom();
+});
+$('inp-code').addEventListener('keydown', e => { if (e.key === 'Enter') joinRoom(); });
+$('inp-code').addEventListener('input', e => { e.target.value = e.target.value.toUpperCase(); });
+
+// ─── Waiting Room ─────────────────────────────────────────────────────
+function copyCode() {
+  if (!navigator.clipboard) return;
+  navigator.clipboard.writeText(roomId).then(() => {
+    const el = $('w-copy-hint');
+    el.textContent = '복사됨!';
+    setTimeout(() => { el.textContent = '탭하여 복사'; }, 1500);
+  });
+}
+
+function startGame() { socket.emit('start_game'); }
+
+function renderWaiting(state) {
+  const hostId = state.players[0]?.id;
+  const amHost = myId === hostId;
+
+  $('w-code').textContent = roomId;
+  $('w-player-lbl').textContent = `참가자 ${state.players.length}명`;
+  $('w-host-area').style.display = amHost ? 'block' : 'none';
+  $('w-wait-msg').style.display  = amHost ? 'none'  : 'block';
+
+  $('w-player-list').innerHTML = state.players.map(p => `
+    <div class="player-row ${p.id === myId ? 'is-me' : ''}">
+      <div class="dot"></div>
+      <div class="p-name">${esc(p.name)}</div>
+      ${p.id === hostId ? '<span class="chip chip-host">방장</span>' : ''}
+      ${p.id === myId   ? '<span class="chip chip-me">나</span>' : ''}
+    </div>
+  `).join('');
+}
+
+// ─── Game Screen ──────────────────────────────────────────────────────
+function renderGame(state) {
+  lastState = state;
+  const N   = state.N;
+  const me  = state.players.find(p => p.id === myId);
+  isAlive   = me?.alive ?? false;
+  const amSecured    = me?.secured ?? false;
+  const mySecuredPick = me?.securedPick ?? null;
+
+  // 확보됐으면 pending pick은 의미 없음
+  if (amSecured) myPick = null;
+
+  const maxNum = state.maxNum; // 1 ~ maxNum (= 생존자 수 - 1), 라운드 내 고정
+
+  $('g-round').textContent = `ROUND ${state.round}`;
+  $('g-alive').textContent = N;
+  $('g-spec').classList.toggle('on', !isAlive);
+
+  // 대기 중 힌트 갱신
+  $('g-idle').textContent = `1 ~ ${maxNum} 중 선택하세요`;
+
+  // 확보된 번호 맵: pick번호 → 플레이어
+  const securedMap = new Map();
+  state.players.forEach(p => {
+    if (p.secured && p.securedPick != null) securedMap.set(p.securedPick, p);
+  });
+
+  // 숫자 버튼 그리드 (범위: 1 ~ maxNum)
+  const minSize = maxNum > 9 ? 58 : maxNum > 6 ? 68 : 80;
+  const grid = $('g-grid');
+  grid.style.gridTemplateColumns = `repeat(auto-fill,minmax(${minSize}px,1fr))`;
+  grid.innerHTML = '';
+
+  // 픽 완료 상태(확보 전)면 다른 버튼도 전부 잠금
+  const alreadyPicked = !amSecured && (me?.hasPick ?? false);
+
+  for (let i = 1; i <= maxNum; i++) {
+    const btn = document.createElement('button');
+    btn.dataset.n = i;
+    btn.textContent = i;
+
+    if (i === mySecuredPick) {
+      // 내가 확보한 번호 → 초록
+      btn.className = 'num-btn secured-mine';
+      btn.disabled = true;
+    } else if (securedMap.has(i)) {
+      // 다른 플레이어가 확보한 번호 → 흐린 초록, 잠금
+      btn.className = 'num-btn secured-other';
+      btn.disabled = true;
+    } else if (i === myPick) {
+      // 내가 선택한 픽 → 파랑, 잠금 (변경 불가)
+      btn.className = 'num-btn picked';
+      btn.disabled = true;
+    } else {
+      btn.className = 'num-btn';
+      btn.disabled = !isAlive || alreadyPicked;
+      if (isAlive && !alreadyPicked) btn.addEventListener('click', () => pick(i));
+    }
+
+    grid.appendChild(btn);
+  }
+
+  // 생존자 / 탈락자 칩
+  const alive = state.players.filter(p => p.alive);
+  const dead  = state.players.filter(p => !p.alive);
+
+  $('g-chips-alive').innerHTML = alive.map(p => {
+    let cls = 'p-chip alive';
+    if (p.secured)      cls += ' secured';
+    else if (p.hasPick) cls += ' has-pick';
+    if (p.id === myId)  cls += ' me';
+    const status = p.secured ? ' ✓' : p.hasPick ? ' ·' : '';
+    const tag    = p.id === myId ? ' (나)' : '';
+    return `<span class="${cls}">${esc(p.name)}${tag}${status}</span>`;
+  }).join('');
+
+  $('g-chips-dead').innerHTML = dead.length
+    ? dead.map(p => {
+        let cls = 'p-chip dead' + (p.id === myId ? ' me' : '');
+        return `<span class="${cls}">${esc(p.name)}</span>`;
+      }).join('')
+    : `<span style="color:var(--dim);font-size:.78rem">아직 없음</span>`;
+}
+
+function pick(num) {
+  if (!isAlive) return;
+  myPick = num;
+  socket.emit('pick_number', { number: num });
+  // 선택 즉시 전체 버튼 잠금 (서버 응답 전 낙관적 UI)
+  document.querySelectorAll('.num-btn').forEach(b => {
+    b.classList.toggle('picked', +b.dataset.n === num);
+    b.disabled = true;
+  });
+}
+
+// ─── Timer ────────────────────────────────────────────────────────────
+function showTimer(sec) {
+  const n = $('g-timer'), s = $('g-timer-sub'), h = $('g-idle');
+  n.classList.remove('flash-green');
+  n.textContent = sec;
+  n.classList.add('on');
+  n.classList.toggle('urgent', sec <= 3);
+  s.classList.add('on');
+  h.style.display = 'none';
+}
+
+function hideTimer() {
+  $('g-timer').classList.remove('on','urgent','flash-green');
+  $('g-timer-sub').classList.remove('on');
+  $('g-idle').style.display = 'block';
+}
+
+function flashCancel() {
+  const n = $('g-timer');
+  if (!n.classList.contains('on')) return;
+  n.classList.add('flash-green');
+  // timer_warning이 곧 도착해 showTimer()를 호출하므로 별도 정리 불필요
+}
+
+// ─── Toast ────────────────────────────────────────────────────────────
+function showToast(html, duration = 3500) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = html;
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .3s ease';
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 320);
+  }, duration);
+}
+
+// ─── Result Screen ────────────────────────────────────────────────────
+function renderResult(result) {
+  $('r-round-tag').textContent = `ROUND ${result.round} 결과`;
+
+  const maxNum     = result.maxNum ?? lastState?.maxNum ?? 0;
+  const securedSet = new Set(result.secured.map(p => p.pick));
+
+  // 숫자 요약 그리드 (확보=초록, 미확보=회색)
+  $('r-summary').innerHTML = Array.from({length: maxNum}, (_,i) => i+1).map(n =>
+    `<div class="ns-num${securedSet.has(n) ? ' secured' : ''}">${n}</div>`
+  ).join('');
+
+  // 확보 성공 목록
+  const secEl = $('r-secured');
+  secEl.innerHTML = result.secured.length
+    ? result.secured.map(p => `
+        <div class="res-item ok">
+          <div class="res-num g">${p.pick}</div>
+          <div class="res-info">
+            <div class="res-name">${esc(p.name)}${p.id===myId ? '<span class="me-tag">(나)</span>' : ''}</div>
+            <div class="res-status">${p.pick}번 단독 확보</div>
+          </div>
+          <div class="res-icon">✓</div>
+        </div>`).join('')
+    : `<p style="color:var(--dim);font-size:.82rem">없음</p>`;
+
+  const elimEl = $('r-elim');
+  elimEl.innerHTML = result.eliminated.length
+    ? result.eliminated.map(p => `
+        <div class="res-item no">
+          <div class="res-num d">✗</div>
+          <div class="res-info">
+            <div class="res-name">${esc(p.name)}${p.id===myId ? '<span class="me-tag">(나)</span>' : ''}</div>
+            <div class="res-status">탈락</div>
+          </div>
+          <div class="res-icon">—</div>
+        </div>`).join('')
+    : `<p style="color:var(--dim);font-size:.82rem">없음</p>`;
+
+  // 진행 바 (3초)
+  const bar = $('r-prog');
+  bar.style.transition = 'none';
+  bar.style.width = '100%';
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    bar.style.transition = 'width 3s linear';
+    bar.style.width = '0%';
+  }));
+}
+
+// ─── Game Over ────────────────────────────────────────────────────────
+function renderGameOver(data) {
+  if (data.winner) {
+    $('go-crown').textContent = data.winner.id === myId ? '🎉' : '🏆';
+    $('go-lbl').textContent   = '최후의 생존자';
+    $('go-name').textContent  = data.winner.name;
+  } else {
+    $('go-crown').textContent = '💀';
+    $('go-lbl').textContent   = '전원 탈락';
+    $('go-name').textContent  = '';
+  }
+}
+
+function backToLobby() {
+  roomId = null; myPick = null; isAlive = true; currentRound = 0;
+  hideTimer();
+  show('lobby');
+}
+
+// ─── Socket Events ────────────────────────────────────────────────────
+socket.on('connect', () => { myId = socket.id; });
+
+socket.on('game_state', state => {
+  setErr('lobby-err',''); setErr('waiting-err','');
+
+  if (!state.gameStarted) {
+    show('waiting');
+    renderWaiting(state);
+    return;
+  }
+
+  if (state.round !== currentRound) {
+    myPick = null;
+    currentRound = state.round;
+  }
+
+  if (curScreen !== 'gameover') {
+    show('game');
+    renderGame(state);
+  }
+});
+
+socket.on('timer_warning', ({ seconds }) => { showTimer(seconds); });
+socket.on('timer_tick',    ({ seconds }) => { showTimer(seconds); });
+socket.on('timer_cancel',  ()            => { flashCancel(); });
+
+socket.on('eliminated', ({ reason, number, winner, rival }) => {
+  isAlive = false;
+  $('g-spec').classList.add('on');
+  const other = reason === 'simultaneous' ? rival : winner;
+  const msg = reason === 'simultaneous'
+    ? `<span style="font-size:1.4rem">💀</span><br>` +
+      `<b style="color:var(--red)">동시 탈락!</b><br>` +
+      `<span style="font-size:.88rem"><b>${esc(other.name)}</b>와(과) <b>${number}번</b>을 동시에 눌렀습니다</span>`
+    : `<span style="font-size:1.4rem">💀</span><br>` +
+      `<b style="color:var(--red)">탈락!</b><br>` +
+      `<span style="font-size:.88rem"><b>${esc(other.name)}</b>이(가) <b>${number}번</b>을 먼저 선택했습니다</span>`;
+  showToast(msg, 4500);
+});
+
+socket.on('round_result', result => {
+  hideTimer();
+  show('result');
+  renderResult(result);
+});
+
+socket.on('game_over', data => {
+  hideTimer();
+  show('gameover');
+  renderGameOver(data);
+});
+
+socket.on('error', ({ message }) => {
+  if (curScreen === 'lobby')   setErr('lobby-err',   message);
+  if (curScreen === 'waiting') setErr('waiting-err', message);
+});
+</script>
+</body>
+</html>
